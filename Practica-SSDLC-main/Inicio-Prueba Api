@@ -1,0 +1,21 @@
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+# Lista de productos (base de datos en memoria)
+productos = [1,2,3,4,5]
+
+# Obtener todos los productos
+@app.route("/productos", methods=["GET"])
+def listar_productos():
+    return jsonify(productos)
+
+# Crear un producto
+@app.route("/productos", methods=["POST"])
+def crear_producto():
+    nuevo_producto = request.get_json()
+    productos.append(nuevo_producto)
+    return jsonify(nuevo_producto), 201
+
+if __name__ == "__main__":
+    app.run(debug=True)
