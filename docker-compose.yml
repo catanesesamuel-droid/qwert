@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # NGINX - Servidor web frontend con HTTPS
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: lab-nginx
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./programacion-segura-skeleton-main
+      dockerfile: Dockerfile
+    container_name: lab-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Solo volúmenes de datos, NO montar código (ya está en la imagen)
+      - backend-data:/data
+      - logs-data:/app/logs
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+  # SQLite Database
+  database:
+    image: alpine:latest
+    container_name: lab-database
+    volumes:
+      - db-data:/data
+    networks:
+      - lab-network
+    command: tail -f /dev/null
+
+# Redes
+networks:
+  lab-network:
+    driver: bridge
+    name: lab-network
+
+# Volúmenes persistentes
+volumes:
+  backend-data:
+    name: lab-backend-data
+  db-data:
+    name: lab-db-data
+  logs-data:
+    name: lab-logs-data  # A09:2021 - Persistencia de logs de seguridad

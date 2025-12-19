@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Usuarios</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-secondary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .users-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .users-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .users-header h2 {
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 5px 12px;
+            font-size: 0.875rem;
+        }
+
+        .users-table {
+            width: 100%;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: var(--bg-secondary);
+        }
+
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        tbody tr:hover {
+            background: var(--bg-secondary);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-admin {
+            background: #dc3545;
+            color: white;
+        }
+
+        .badge-user {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
+
+        select {
+            padding: 5px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="users-container">
+        <div class="users-header">
+            <h2>👥 Lista de Usuarios</h2>
+            <button class="btn btn-primary" onclick="refreshUsers()">
+                🔄 Actualizar
+            </button>
+        </div>
+
+        <div id="message-container"></div>
+
+        <div id="loading" class="loading" style="display: none;">
+            ⏳ Cargando usuarios...
+        </div>
+
+        <div class="users-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Usuario</th>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody">
+                    <!-- Los usuarios se cargarán aquí -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        // Obtener datos de autenticación (funciona tanto en iframe como standalone)
+        function getAuthData() {
+            try {
+                let user = null;
+
+                // Intentar obtener del parent primero (si está en iframe)
+                try {
+                    if (window.parent !== window) {
+                        user = JSON.parse(parent.sessionStorage.getItem('user'));
+                    }
+                } catch (e) {
+                    // Ignorar errores de CORS
+                }
+
+                // Si no hay usuario del parent, usar sessionStorage local
+                if (!user) {
+                    user = JSON.parse(sessionStorage.getItem('user'));
+                }
+
+                if (!user || !user.token) {
+                    console.warn('No hay usuario autenticado, redirigiendo al login...');
+                    window.location.href = 'index.html';
+                    return {};
+                }
+
+                // VERIFICACIÓN DE ADMIN: Solo los administradores pueden acceder a esta página
+                if (user.role !== 'admin') {
+                    console.warn('Acceso denegado: Solo administradores pueden gestionar usuarios');
+                    alert('⚠️ Acceso Denegado\n\nSolo los administradores pueden acceder a la gestión de usuarios.');
+                    window.location.href = 'dashboard.html';
+                    return {};
+                }
+
+                return {
+                    token: user.token,
+                    role: user.role,
+                    username: user.username
+                };
+            } catch (error) {
+                console.error('Error obteniendo datos de auth:', error);
+                window.location.href = 'index.html';
+                return {};
+            }
+        }
+
+        // Obtener solo el token (para compatibilidad)
+        function getToken() {
+            const { token } = getAuthData();
+            return token;
+        }
+
+        // Escapar HTML para prevenir XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Mostrar mensaje
+        function showMessage(message, type = 'success') {
+            const container = document.getElementById('message-container');
+            container.innerHTML = `
+                <div class="${type}-message">
+                    ${message}
+                </div>
+            `;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 3000);
+        }
+
+        // Cargar usuarios
+        async function loadUsers() {
+            console.log('[users_management] Iniciando carga de usuarios...');
+            const loading = document.getElementById('loading');
+            const tbody = document.getElementById('users-tbody');
+            const token = getToken();
+
+            console.log('[users_management] Token obtenido:', token ? 'Sí' : 'No');
+
+            if (!token) {
+                console.error('[users_management] No hay token disponible');
+                showMessage('No hay sesión activa', 'error');
+                return;
+            }
+
+            loading.style.display = 'block';
+            tbody.innerHTML = '';
+
+            try {
+                console.log('[users_management] Realizando petición a /users/...');
+                const response = await fetch(`${API_BASE}/users/?skip=0&limit=100`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                console.log('[users_management] Respuesta recibida:', response.status, response.statusText);
+
+                if (!response.ok) {
+                    throw new Error(`Error al cargar usuarios: ${response.status} ${response.statusText}`);
+                }
+
+                const users = await response.json();
+                console.log('[users_management] Usuarios cargados:', users.length);
+
+                tbody.innerHTML = users.map(user => {
+                    const usernameEscaped = escapeHtml(user.username);
+                    const emailEscaped = escapeHtml(user.email || 'N/A');
+                    const usernameForJs = usernameEscaped.replace(/'/g, "\\'");
+
+                    return `
+                    <tr>
+                        <td>${user.id}</td>
+                        <td><strong>${usernameEscaped}</strong></td>
+                        <td>${emailEscaped}</td>
+                        <td>
+                            <span class="badge badge-${user.role}">
+                                ${user.role.toUpperCase()}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="actions">
+                                <select onchange="changeRole(${user.id}, this.value)" class="btn-sm">
+                                    <option value="">Cambiar rol...</option>
+                                    <option value="user">Usuario</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                                ${user.id !== 1 ? `
+                                    <button class="btn btn-danger btn-sm" onclick="deleteUser(${user.id}, '${usernameForJs}')">
+                                        🗑️ Eliminar
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error al cargar usuarios: ' + error.message, 'error');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Cambiar rol
+        async function changeRole(userId, newRole) {
+            if (!newRole) return;
+
+            const token = getToken();
+            if (!token) {
+                showMessage('No hay sesión activa', 'error');
+                return;
+            }
+
+            try {
+                console.log('[users_management] Cambiando rol usuario ID:', userId, 'a', newRole);
+                const response = await fetch(`${API_BASE}/users/${userId}?new_role=${newRole}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                console.log('[users_management] Respuesta al cambiar rol:', response.status);
+
+                if (!response.ok) {
+                    let errorMessage = `Error al actualizar rol: ${response.status}`;
+
+                    const contentType = response.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        try {
+                            const error = await response.json();
+                            errorMessage = error.detail || errorMessage;
+                        } catch (e) {
+                            console.error('[users_management] Error parseando JSON:', e);
+                        }
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                showMessage(`✅ Rol actualizado a ${newRole}`, 'success');
+                loadUsers();
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error al actualizar rol: ' + error.message, 'error');
+            }
+        }
+
+        // Eliminar usuario
+        async function deleteUser(userId, username) {
+            if (!confirm(`¿Eliminar usuario "${username}"?`)) {
+                return;
+            }
+
+            const token = getToken();
+            if (!token) {
+                showMessage('No hay sesión activa', 'error');
+                return;
+            }
+
+            try {
+                console.log('[users_management] Eliminando usuario ID:', userId);
+                const response = await fetch(`${API_BASE}/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                console.log('[users_management] Respuesta al eliminar:', response.status);
+
+                if (!response.ok) {
+                    let errorMessage = `Error al eliminar usuario: ${response.status}`;
+
+                    const contentType = response.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        try {
+                            const error = await response.json();
+                            errorMessage = error.detail || errorMessage;
+                        } catch (e) {
+                            console.error('[users_management] Error parseando JSON:', e);
+                        }
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                showMessage(`✅ Usuario "${username}" eliminado`, 'success');
+                loadUsers();
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Refrescar
+        function refreshUsers() {
+            loadUsers();
+        }
+
+        // Cargar al iniciar
+        loadUsers();
+    </script>
+</body>
+</html>
